@@ -1,4 +1,3 @@
-from turtle import forward
 import torch
 import torch.nn as nn
 from functools import partial
@@ -83,6 +82,9 @@ class Block(nn.Module):
 
 class MyVisionTransformer(VisionTransformer):
     def __init__(self, *args, **kwargs):
+        # timm 1.0의 create_model이 주입하는 메타 인자는 원본 VisionTransformer가 받지 않음
+        for _meta in ("pretrained_cfg", "pretrained_cfg_overlay", "cache_dir"):
+            kwargs.pop(_meta, None)
         super().__init__(*args, **kwargs)
         norm_layer = kwargs['norm_layer'] or partial(nn.LayerNorm, eps=1e-6)
         act_layer = None or nn.GELU
