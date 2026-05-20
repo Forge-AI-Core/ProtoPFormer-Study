@@ -20,6 +20,7 @@ export MPLBACKEND=Agg   # 화면 없는 렌더링 backend
 model=deit_small_patch16_224
 batch_size=${1:-64}
 epochs=${2:-3}
+resume_ckpt=${3:-}      # (선택) 3번째 인자에 checkpoint 경로 주면 거기서 이어서 학습
 seed=1028
 
 # Learning Rate
@@ -90,4 +91,5 @@ python main.py \
     --global_proto_per_class=$global_proto_per_class \
     --ppc_cov_coe=$ppc_cov_coe \
     --ppc_mean_coe=$ppc_mean_coe \
-    --balanced_sampler
+    --balanced_sampler \
+    ${resume_ckpt:+--resume=$resume_ckpt}

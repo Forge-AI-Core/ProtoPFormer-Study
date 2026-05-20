@@ -429,6 +429,7 @@ def main(args):
     logger.info(f"Start training for {args.epochs} epochs")
     start_time = time.time()
     max_accuracy = 0.0
+    max_balanced = 0.0          # best checkpoint 기준 (불균형: balanced_acc 사용)
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             logger.info("distributed, data_loader_train set epoch")
@@ -467,12 +468,16 @@ def main(args):
         tb_writer.add_scalar("epoch/val_acc1", test_stats['acc1'], epoch)
         tb_writer.add_scalar("epoch/val_loss", test_stats['loss'], epoch)
         tb_writer.add_scalar("epoch/val_acc5", test_stats['acc5'], epoch)
+        if 'balanced_acc' in test_stats:
+            tb_writer.add_scalar("epoch/val_balanced_acc", test_stats['balanced_acc'], epoch)
         if args.use_global:
             tb_writer.add_scalar("epoch/global_acc1", test_stats['global_acc1'], epoch)
             tb_writer.add_scalar("epoch/local_acc1", test_stats['local_acc1'], epoch)
 
         logger.info(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
-        if max_accuracy < test_stats["acc1"]:   # save the best
+        # best checkpoint = balanced_acc 기준 (불균형 데이터에서 acc1 보다 적절). 없으면 acc1 로 fallback.
+        cur_balanced = test_stats.get("balanced_acc", test_stats["acc1"])
+        if max_balanced < cur_balanced:   # save the best
             checkpoint_paths = [output_dir / 'checkpoints/epoch-best.pth']
             for checkpoint_path in checkpoint_paths:
                 utils.save_on_master({
@@ -483,9 +488,25 @@ def main(args):
                     'model_ema': get_state_dict(model_ema),
                     'scaler': loss_scaler.state_dict(),
                     'args': args,
+                    'balanced_acc': cur_balanced,
+                    'acc1': test_stats['acc1'],
                 }, checkpoint_path)
+            logger.info(f"[best] balanced_acc {cur_balanced:.2f}% @ epoch {epoch} → saved epoch-best.pth")
+        max_balanced = max(max_balanced, cur_balanced)
         max_accuracy = max(max_accuracy, test_stats["acc1"])
-        logger.info(f'Max accuracy: {max_accuracy:.2f}%')
+        logger.info(f'Max balanced_acc: {max_balanced:.2f}%  (Max acc1: {max_accuracy:.2f}%)')
+
+        # 매 epoch: resume 용 latest checkpoint(덮어쓰기) — 중간에 끊겨도 --resume 으로 이어서 가능
+        if args.output_dir:
+            utils.save_on_master({
+                'model': model_without_ddp.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'lr_scheduler': lr_scheduler.state_dict(),
+                'epoch': epoch,
+                'model_ema': get_state_dict(model_ema),
+                'scaler': loss_scaler.state_dict(),
+                'args': args,
+            }, output_dir / 'checkpoints/checkpoint-latest.pth')
 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                      **{f'test_{k}': v for k, v in test_stats.items()},
