@@ -174,7 +174,7 @@ def get_args_parser():
 
     # Dataset parameters
     parser.add_argument('--data_set', default='CIFAR100', 
-    choices=['CUB2011U', 'Car', 'Dogs',],
+    choices=['CUB2011U', 'Car', 'Dogs', 'Bogonet',],
     # choices=['CIFAR', 'IMNET', 'INAT', 'INAT19'],
                         type=str, help='Image Net dataset path')
     parser.add_argument('--inat-category', default='name',
@@ -192,6 +192,8 @@ def get_args_parser():
     parser.add_argument('--eval', action='store_true', help='Perform evaluation only')
     parser.add_argument('--dist-eval', action='store_true', default=False, help='Enabling distributed evaluation')
     parser.add_argument('--num_workers', default=10, type=int)
+    parser.add_argument('--balanced_sampler', action='store_true', default=False,
+                        help='WeightedRandomSampler 로 클래스 불균형 보정 (train loader 만, 평가는 영향 없음)')
     parser.add_argument('--pin-mem', action='store_true',
                         help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
     parser.add_argument('--no-pin-mem', action='store_false', dest='pin_mem',
@@ -278,6 +280,8 @@ def main(args):
     # dataset_val, _ = build_dataset(is_train=False, args=args)
     logger.info("Dataset num_classes: {}".format(args.nb_classes))
     logger.info("train {} test: {}".format(len(dataset_train), len(dataset_val)))
+    if hasattr(dataset_val, 'classes'):
+        args.class_names = dataset_val.classes   # per-class 평가 라벨명
 
     # if True:  # args.distributed:
     if args.distributed:
@@ -296,7 +300,18 @@ def main(args):
         else:
             sampler_val = torch.utils.data.SequentialSampler(dataset_val)
     else:
-        sampler_train = torch.utils.data.RandomSampler(dataset_train)
+        if args.balanced_sampler:
+            # 클래스 불균형 보정: 소수 클래스 샘플을 더 자주 뽑음 (train loader 만).
+            targets = [int(lbl) for _, lbl in dataset_train.samples]
+            class_count = np.bincount(targets, minlength=args.nb_classes)
+            per_class_w = 1.0 / np.maximum(class_count, 1)
+            sample_weights = per_class_w[targets]
+            sampler_train = torch.utils.data.WeightedRandomSampler(
+                weights=torch.as_tensor(sample_weights, dtype=torch.double),
+                num_samples=len(targets), replacement=True)
+            logger.info("WeightedRandomSampler ON  class_count={}  → 균등 샘플링".format(class_count.tolist()))
+        else:
+            sampler_train = torch.utils.data.RandomSampler(dataset_train)
         sampler_val = torch.utils.data.SequentialSampler(dataset_val)
 
     data_loader_train = torch.utils.data.DataLoader(

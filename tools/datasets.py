@@ -97,6 +97,9 @@ def build_dataset_view(is_train, args):
     elif args.data_set == 'CUB2011U':
         dataset = Cub2011(args.data_path, train=is_train, transform=transform)
         nb_classes = 200
+    elif args.data_set == 'Bogonet':
+        dataset = Bogonet(args.data_path, train=is_train, transform=transform)
+        nb_classes = 3
     elif args.data_set == 'Dogs':
         dataset = Dogs(root=os.path.join(args.data_path, 'stanford_dogs'), train=is_train, cropped=False,
                     transform=transform, download=False)
@@ -142,6 +145,9 @@ def build_dataset_noaug(is_train, args):
     elif args.data_set == 'CUB2011U':
         dataset = Cub2011(args.data_path, train=is_train, transform=transform)
         nb_classes = 200
+    elif args.data_set == 'Bogonet':
+        dataset = Bogonet(args.data_path, train=is_train, transform=transform)
+        nb_classes = 3
     elif args.data_set == 'Dogs':
         dataset = Dogs(root=os.path.join(args.data_path, 'stanford_dogs'), train=is_train, cropped=False,
                     transform=transform, download=False)
@@ -182,6 +188,9 @@ def build_dataset(is_train, args):
     elif args.data_set == 'CUB2011U':
         dataset = Cub2011(args.data_path, train=is_train, transform=transform)
         nb_classes = 200
+    elif args.data_set == 'Bogonet':
+        dataset = Bogonet(args.data_path, train=is_train, transform=transform)
+        nb_classes = 3
     elif args.data_set == 'Car':
         split = 'train' if is_train else 'test'
         dataset = StanfordCars(args.data_path, split=split, transform=transform, download=True)
@@ -472,6 +481,43 @@ class Cub2011(Dataset):
             img = self.transform(img)
 
         return img, target
+
+
+class Bogonet(Dataset):
+    """Bogonet 철스크랩 위험물 3-class 분류 (cut=0, danger=1, excluded=2).
+
+    팀 공통 image-level split(split02)을 소비. 폴더 구조(ImageFolder):
+        <root>/crops_{EXPANSION}_split/{train,val}/{cut,danger,excluded}/*.jpg
+    → 팀원이 image_id 단위로 재-split (train/val 이미지 leakage 0, 검증됨).
+      모든 팀원이 동일 split을 써서 모델 간 비교가 공정.
+
+    root      : classification_split 디렉토리 (crops_*_split/ 의 부모).
+    EXPANSION : 0pct / 10pct / 25pct (crops_{EXPANSION}_split 사용). 동일 split 이므로 ablation 가능.
+    ImageFolder 가 폴더명 알파벳순으로 라벨 부여 → cut=0,danger=1,excluded=2 (우리 규약과 일치).
+    """
+    CLASS_NAMES = ["cut", "danger", "excluded"]
+    NUM_CLASSES = 3
+    EXPANSION = "25pct"   # 팀 결정 (2026-05-20)
+
+    def __init__(self, root, train=True, transform=None, loader=default_loader, download=False):
+        self.root = os.path.expanduser(root)
+        split = "train" if train else "val"
+        split_dir = os.path.join(self.root, f"crops_{self.EXPANSION}_split", split)
+        assert os.path.isdir(split_dir), \
+            f"split 디렉토리 없음: {split_dir} (팀 공통 split02 경로 확인)"
+
+        self._inner = ImageFolder(split_dir, transform=transform, loader=loader)
+        # 라벨 순서가 우리 규약(cut=0,danger=1,excluded=2)과 일치하는지 보증
+        assert self._inner.classes == self.CLASS_NAMES, \
+            f"클래스 순서 불일치: {self._inner.classes} != {self.CLASS_NAMES}"
+        self.samples = self._inner.samples      # [(path, label), ...]
+        self.classes = self._inner.classes      # ['cut','danger','excluded'] (평가 라벨명용)
+
+    def __len__(self):
+        return len(self._inner)
+
+    def __getitem__(self, idx):
+        return self._inner[idx]
 
 
 class StanfordCars(VisionDataset):
