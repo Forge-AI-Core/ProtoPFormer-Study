@@ -497,7 +497,7 @@ class Bogonet(Dataset):
     """
     CLASS_NAMES = ["cut", "danger", "excluded"]
     NUM_CLASSES = 3
-    EXPANSION = "25pct"   # 팀 결정 (2026-05-20)
+    EXPANSION = os.environ.get("BOGONET_EXPANSION", "25pct")   # train_bogonet.sh 가 export (기본 25pct)
 
     def __init__(self, root, train=True, transform=None, loader=default_loader, download=False):
         self.root = os.path.expanduser(root)

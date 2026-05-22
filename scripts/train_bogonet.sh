@@ -6,9 +6,10 @@
 #         → TransFG 실험과 동일 val set, leakage 0. crop expansion=25pct(tools/datasets.py Bogonet.EXPANSION).
 #
 # 사용법 (ProtoPFormer 루트에서):
-#   bash scripts/train_bogonet.sh [batch_size] [epochs]
-#   예) smoke test:  bash scripts/train_bogonet.sh 64 3
-#       본 학습:     bash scripts/train_bogonet.sh 128 200
+#   bash scripts/train_bogonet.sh [batch_size] [epochs] [expansion] [resume_ckpt]
+#   예) 25pct 본학습: bash scripts/train_bogonet.sh 64 200 25pct
+#       10pct 본학습: bash scripts/train_bogonet.sh 64 150 10pct
+#       재개:         bash scripts/train_bogonet.sh 64 150 10pct <output/bogonet_10pct/.../checkpoint-latest.pth>
 #
 # 전제: proto_venv 활성화. CUB checkpoint warm-start 안 함(아직 학습된 CUB ProtoPFormer 없음)
 #       → DeiT-S ImageNet pretrained backbone 에서 출발 (CUB smoke test와 동일 init).
@@ -20,7 +21,9 @@ export MPLBACKEND=Agg   # 화면 없는 렌더링 backend
 model=deit_small_patch16_224
 batch_size=${1:-64}
 epochs=${2:-3}
-resume_ckpt=${3:-}      # (선택) 3번째 인자에 checkpoint 경로 주면 거기서 이어서 학습
+expansion=${3:-25pct}   # crop expansion: 0pct / 10pct / 25pct (ablation)
+resume_ckpt=${4:-}      # (선택) 4번째 인자에 checkpoint 경로 주면 거기서 이어서 학습
+export BOGONET_EXPANSION=$expansion   # tools/datasets.py Bogonet 가 읽음
 seed=1028
 
 # Learning Rate
@@ -57,7 +60,7 @@ data_set=Bogonet
 data_path=/home/changilkim/Documents/aiffel_class/AiffelThon01/Bogonet/Bogonet_data/split02/classification_split
 prototype_num=30      # 3-class × 10 per class (assert num_prototypes % num_classes == 0)
 dim=192
-output_dir=output/bogonet
+output_dir=output/bogonet_${expansion}   # expansion별 분리 (10pct ↔ 25pct 안 섞임)
 
 python main.py \
     --base_architecture=$model \
