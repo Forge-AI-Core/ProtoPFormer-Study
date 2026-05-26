@@ -1,0 +1,33 @@
+[project]
+name = "protopformer-study"
+version = "0.1.0"
+description = "ProtoPFormer study — intrinsic prototype-based interpretable fine-grained classification (Forge-AI-Core)"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "torch==2.10.0",
+    "torchvision==0.25.0",
+    "timm==1.0.27",
+    "numpy",
+    "scipy",
+    "pandas",
+    "pillow",
+    "matplotlib",
+    "opencv-python-headless",
+    "tensorboard",
+    "ipykernel",
+]
+
+# 이 repo는 스크립트 실행용(설치형 패키지 아님) → 빌드/설치 안 함, 환경만 관리
+[tool.uv]
+package = false
+
+# torch / torchvision 은 CUDA 13.0(aarch64) 전용 인덱스에서 받음
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
