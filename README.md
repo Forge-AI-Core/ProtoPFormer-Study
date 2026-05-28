@@ -1,120 +1,131 @@
 # ProtoPFormer-Study
 
 [![Paper](https://img.shields.io/badge/Paper-ECCV%202022-blue)](https://arxiv.org/abs/2208.10431)
-[![Original Repo](https://img.shields.io/badge/Original-zju--vipa%2FProtoPFormer-black)](https://github.com/zju-vipa/ProtoPFormer)
-[![Status](https://img.shields.io/badge/Status-WIP-yellow)](#-project-status)
+[![Original](https://img.shields.io/badge/Original-zju--vipa%2FProtoPFormer-black)](https://github.com/zju-vipa/ProtoPFormer)
 
-**Paper**: [https://arxiv.org/abs/2208.10431](https://arxiv.org/abs/2208.10431)
-**Original Repository**: [zju-vipa/ProtoPFormer](https://github.com/zju-vipa/ProtoPFormer)
+ProtoPFormer adds **Global + Local prototype branches** on top of DeiT, giving
+**intrinsic interpretability** ("this looks like that") for fine-grained recognition.
+This study repo extends the team's fine-grained pool from **post-hoc attention**
+(TransFG / PIM / RA-CNN) to **intrinsic prototype reasoning**, then transfers to the
+**Bogonet industrial dataset (Phase 2, private)**.
 
-ProtoPFormer proposes **Global + Local prototype branches** on top of DeiT, achieving competitive accuracy on fine-grained benchmarks with **intrinsic interpretability** ("this looks like that" reasoning).
+## 👁️ Project Goal
+Make each prediction **auditable** — the model points to the image region (prototype)
+behind its decision. Target: safety-critical industrial inspection where *why* matters.
 
-This study repo extends the team's [fine-grained mechanism pool](https://github.com/Forge-AI-Core) from **post-hoc attention** (TransFG / PIM / RA-CNN) to **intrinsic prototype-based reasoning**, and will later transfer to Vogonet steel scrap data (Phase 2).
+## 🚀 Objective
+```
+ImageNet (DeiT-S/16)  →  Bogonet 3-class domain transfer (our own train/val split)  →  interpretable classifier
+```
+
+This branch (**SCRUM-48**) delivers the **25pct crop expansion** full run (200 epochs) + result artifacts.
+Sibling tickets: SCRUM-52 (10pct), SCRUM-56 (0pct) for the 3-way crop ablation.
 
 ---
 
-## 🚧 Project Status (as of 2026-05-18)
+## 1. Setup (Python 3.12 · uv)
 
-| Phase | Status | Note |
+Reproducible environment via [uv](https://docs.astral.sh/uv/):
+
+```bash
+# 1) install uv (once per machine)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2) reproduce the exact environment (creates .venv from uv.lock)
+uv sync
+
+# 3) run anything inside that environment
+uv run python main.py ...
+```
+
+- **Python**: `3.12` — pinned via `.python-version`
+- **PyTorch**: `torch==2.10.0+cu130`, `torchvision==0.25.0+cu130` from the PyTorch **CUDA 13.0** index
+  (declared in `pyproject.toml [tool.uv.sources]`, so `uv sync` fetches the correct aarch64 wheels)
+- **Hardware (dev)**: NVIDIA GB10 (DGX Spark, aarch64, CUDA 13.0)
+- Exact versions are frozen in **`uv.lock`** (committed) → identical env for every teammate.
+
+> ℹ️ Scripts/identifiers use the `bogonet` name throughout.
+
+---
+
+## 2. 🏋️ Training (this branch: crop=25pct)
+
+```bash
+# bash scripts/train_bogonet.sh <batch> <epochs> <expansion>
+uv run bash scripts/train_bogonet.sh 64 200 25pct
+```
+- **Class imbalance** → `--balanced_sampler` (WeightedRandomSampler, train loader only)
+- Cosine schedule + warmup; **best checkpoint selected by balanced accuracy**
+- Resume a stopped run: pass a 4th arg (a `checkpoint-latest.pth` path)
+- Full hyperparameters → [`result/25pct/parameters.md`](result/25pct/parameters.md)
+
+## 3. 📊 Result — 25pct crop, 200 epochs
+
+Headline metric = **balanced accuracy** (mean per-class recall — the meaningful metric under imbalance), plus per-class **precision / recall / F1** and a **confusion matrix**.
+
+| metric | value |
+| :--- | :--- |
+| balanced accuracy (best) | **73.16%** |
+| per-class recall (cut / danger / excluded) | 0.79 / 0.71 / 0.70 |
+| per-class precision (cut / danger / excluded) | 0.82 / 0.69 / 0.67 |
+| per-class F1 (cut / danger / excluded) | 0.80 / 0.70 / 0.68 |
+
+**Crop-expansion ablation outlook** (same split02, 200 epochs):
+
+| crop | balanced acc | ticket |
+| :--- | ---: | :--- |
+| **25pct** (this branch) | **73.16%** | SCRUM-48 |
+| 10pct | 70.94% | SCRUM-52 |
+| 0pct  | 71.59% | SCRUM-56 |
+
+→ Surrounding context (25pct) helps the harder minority class; ProtoPFormer is robust even on tight crops (0pct).
+
+**Train/Val overfit check (25pct):**
+
+![Train/Val overfit check — 25pct](result/25pct/overfit_curve.png)
+
+Full artifacts in this branch: [`result/25pct/`](result/25pct/) — `metrics.md` (P/R/F1+confusion), `parameters.md` (hyperparams), `train_val_history.md` + `overfit_curve.png` (overfit check).
+
+## 4. 🔥 Prototype Visualization ★ (core deliverable)
+
+```bash
+uv run bash scripts/visualize_bogonet.sh epoch-best.pth
+```
+Generates per-prototype **activation heatmaps**: *which patch matched which class prototype*,
+making each decision auditable.
+
+> "Why was this sample classified as class X?" → "Patch Y matches prototype P_k of class X."
+
+*(Sample images are omitted here — private dataset.)*
+
+## 5. 📈 Output & Metrics layout
+
+```
+output/.../checkpoints/epoch-best.pth        # best by balanced_acc
+output/.../checkpoints/checkpoint-latest.pth # per-epoch, for --resume
+output/.../tf-logs/                          # TensorBoard scalars
+output/.../train-logs/                       # text log (per-epoch metrics, confusion matrix)
+```
+
+---
+
+## 🔧 Modifications from Original
+
+| Area | Change | Why |
 | :--- | :--- | :--- |
-| Repo init (README, .gitignore) | ✅ Done | This commit |
-| Environment (`pyproject.toml`, DeiT-S weights) | 📋 Planned | STEP 5 |
-| CUB-200 training (smoke test) | 📋 Planned | STEP 6 |
-| Aircraft / Stanford Cars training | 🤔 TBD | **Decided with the team after CUB results** |
-| Prototype visualization | 📋 Planned | STEP 8 |
-| Vogonet steel scrap transfer | 📋 Planned | STEP 10 (Phase 2, after dataset arrives) |
+| timm 1.0 compat | pop meta kwargs in `MyVisionTransformer`; optional CaiT import | run on timm 1.0 |
+| Class imbalance | `--balanced_sampler` (WeightedRandomSampler) | minority classes |
+| Metric | balanced accuracy + per-class confusion matrix | imbalanced eval |
+| Checkpointing | best = balanced_acc; per-epoch `checkpoint-latest` (resume) | recall-first / robust long runs |
+| Crop ablation | `--expansion` arg (0 / 10 / 25 %) | context-vs-tightness study |
+| torch 2.6 / mpl 3.4 | `torch.load(weights_only=False)`; `fig.add_subplot(projection='3d')` | visualization on current stack |
+| Hardware | NVIDIA GB10 / aarch64 / CUDA 13 single-GPU path | dev machine |
 
-> This README follows the **Reproducibility Policy** (see §6). Only commands that actually work *now* are written in imperative form. Future stages are explicitly marked "📋 Planned" or "🤔 TBD".
+## ♻️ Reproducibility Policy
 
----
-
-## 🗺️ Pipeline
-
-```text
-ImageNet Pretraining (DeiT-S/16, provided by timm)
-        ↓
-CUB-200 Fine-tuning (200 classes)        ← STEP 6: smoke test
-        ↓
-[Next steps decided with the team after CUB results]
-        ↓
-Vogonet Steel Scrap (Phase 2, after dataset arrives this week of 2026-05-18)
-```
-
----
-
-## 1. Setup & Installation (📋 to be finalized in STEP 5)
-
-> `pyproject.toml` is not defined yet. Once dependencies are pinned in STEP 5, this section will be replaced with the exact, working commands.
-
-Planned form (for reference, not yet runnable):
-```zsh
-curl -LsSf https://astral.sh/uv/install.sh | sh   # install uv
-uv sync                                            # sync dependencies
-```
-
-### Hardware
-- **Development/verification machine**: NVIDIA GB10 (DGX Spark, aarch64, CUDA 13.0)
-- **PyTorch wheel**: `torch==2.10.0+cu130` from `https://download.pytorch.org/whl/cu130`
-
-### Datasets
-- **CUB-200-2011**: [Download](https://www.vision.caltech.edu/datasets/cub-200-2011/)
-- *FGVC-Aircraft, Stanford Cars: conditional, pending CUB results*
-
----
-
-## 2. Training (📋 to be finalized in STEP 6)
-
-After the CUB training command is validated end-to-end, this section will be filled with **the exact command, seed, and environment** so that any teammate can reproduce the same result.
-
-Items to be recorded:
-- Training command (e.g., `uv run python main.py --seed 42 ...`)
-- Logs and checkpoint paths
-- **Achieved accuracy (Top-1 %)** — for reproducibility verification
-
----
-
-## 3. Evaluation (📋 after STEP 6)
-
-Will be filled with the evaluation command and result numbers after CUB training completes.
-
----
-
-## 4. Prototype Visualization ★ (📋 STEP 8, core deliverable)
-
-This is the **core deliverable** of this repo — making the model's reasoning auditable for safety-critical industrial inspection.
-
-Planned outputs:
-- Per-class prototype gallery (source training image with patch-location overlay)
-- Top-K activated prototypes per test image
-- Side-by-side "this patch looks like that prototype" visualization
-
-Use case:
-> "Why was this scrap classified as DANGEROUS?"
-> → "Patch X matches prototype P_47 (gas-cylinder valve pattern)."
-
----
-
-## 5. 🔗 Related Repos (Forge-AI-Core)
-
-| Repo | Paradigm | Backbone | Lead |
-| :--- | :--- | :--- | :--- |
-| [TransFG-Study](https://github.com/Forge-AI-Core/TransFG-Study) | Post-hoc PSM | ViT-B/16 | myself |
-| [FGVC-PIM](https://github.com/Forge-AI-Core/FGVC-PIM) | Plug-in Module | Swin-T | team lead |
-| [FGVC-RA-CNN](https://github.com/Forge-AI-Core/FGVC-RA-CNN) | Recurrent Attention | VGG/ResNet | team |
-| **ProtoPFormer-Study** | **Intrinsic Prototype** | **DeiT-S/16** | **myself** |
-
----
-
-## 6. Reproducibility Policy
-
-This repo follows the team policy: **any teammate should be able to read this README, run the committed files as-is, and obtain the same result.**
-
-- Every training command must use a **fixed seed** (`--seed 42`)
-- Dependencies are pinned via `uv.lock`
-- Training results (accuracy, etc.) are recorded as numbers in §2 / §3
-- Stages that are not yet runnable are marked "📋 Planned" or "🤔 TBD" — no aspirational commands left in the README
-
----
+Any teammate should read this README, run the committed files as-is (`uv sync` → `uv run ...`),
+and obtain the same result. Fixed seed (1028); environment frozen in `uv.lock`; results recorded above;
+no aspirational commands.
 
 ## Citation
 
@@ -127,9 +138,6 @@ This repo follows the team policy: **any teammate should be able to read this RE
 }
 ```
 
----
-
 ### Acknowledgement
 - Official ProtoPFormer implementation: [zju-vipa/ProtoPFormer](https://github.com/zju-vipa/ProtoPFormer)
 - Team fine-grained research track: [Forge-AI-Core](https://github.com/Forge-AI-Core)
-- AIFFEL Modulabs × Vogonet Co., Ltd. industry-academia project
