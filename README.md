@@ -107,7 +107,15 @@ output/.../tf-logs/                          # TensorBoard scalars
 output/.../train-logs/                       # text log (per-epoch metrics, confusion matrix)
 ```
 
----
+| Area | Change | Why |
+| :--- | :--- | :--- |
+| timm 1.0 compat | pop meta kwargs in `MyVisionTransformer`; optional CaiT import | run on timm 1.0 |
+| Class imbalance | `--balanced_sampler` (WeightedRandomSampler) | minority classes |
+| Metric | balanced accuracy + per-class confusion matrix | imbalanced eval |
+| Checkpointing | best = balanced_acc; per-epoch `checkpoint-latest` (resume) | recall-first / robust long runs |
+| Crop ablation | `--expansion` arg (0 / 10 / 25 %) | context-vs-tightness study |
+| torch 2.6 / mpl 3.4 | `torch.load(weights_only=False)`; `fig.add_subplot(projection='3d')` | visualization on current stack |
+| Hardware | NVIDIA GB10 / aarch64 / CUDA 13 single-GPU path | dev machine |
 
 ## 🔧 Modifications from Original
 
