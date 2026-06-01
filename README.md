@@ -18,8 +18,8 @@ behind its decision. Target: safety-critical industrial inspection where *why* m
 ImageNet (DeiT-S/16)  →  Bogonet 3-class domain transfer (our own train/val split)  →  interpretable classifier
 ```
 
-This branch (**SCRUM-48**) delivers the **25pct crop expansion** full run (200 epochs) + result artifacts.
-Sibling tickets: SCRUM-52 (10pct), SCRUM-56 (0pct) for the 3-way crop ablation.
+This branch (**SCRUM-52**) delivers the **10pct crop expansion** full run (200 epochs) + result artifacts.
+Sibling tickets: SCRUM-48 (25pct), SCRUM-56 (0pct) for the 3-way crop ablation.
 
 ---
 
@@ -48,43 +48,44 @@ uv run python main.py ...
 
 ---
 
-## 2. 🏋️ Training (this branch: crop=25pct)
+## 2. 🏋️ Training (this branch: crop=10pct)
 
 ```bash
-# bash scripts/train_bogonet.sh <batch> <epochs> <expansion>
-uv run bash scripts/train_bogonet.sh 64 200 25pct
+# bash scripts/train_bogonet.sh <batch> <epochs> <expansion>  [resume_ckpt]
+uv run bash scripts/train_bogonet.sh 64 150 10pct                                    # 1차 150ep
+uv run bash scripts/train_bogonet.sh 64 200 10pct <checkpoint-latest>                # 200ep까지 resume
 ```
 - **Class imbalance** → `--balanced_sampler` (WeightedRandomSampler, train loader only)
 - Cosine schedule + warmup; **best checkpoint selected by balanced accuracy**
-- Resume a stopped run: pass a 4th arg (a `checkpoint-latest.pth` path)
-- Full hyperparameters → [`result/25pct/parameters.md`](result/25pct/parameters.md)
+- 25pct/0pct는 200ep 단번에 학습, 10pct는 공정 비교 위해 150 → resume +50ep = 200ep
+- Full hyperparameters → [`result/10pct/parameters.md`](result/10pct/parameters.md)
 
-## 3. 📊 Result — 25pct crop, 200 epochs
+## 3. 📊 Result — 10pct crop, 200 epochs
 
 Headline metric = **balanced accuracy** (mean per-class recall — the meaningful metric under imbalance), plus per-class **precision / recall / F1** and a **confusion matrix**.
 
 | metric | value |
 | :--- | :--- |
-| balanced accuracy (best) | **73.16%** |
-| per-class recall (cut / danger / excluded) | 0.79 / 0.71 / 0.70 |
-| per-class precision (cut / danger / excluded) | 0.82 / 0.69 / 0.67 |
-| per-class F1 (cut / danger / excluded) | 0.80 / 0.70 / 0.68 |
+| balanced accuracy (best) | **70.94%** |
+| per-class recall (cut / danger / excluded) | 0.82 / 0.70 / 0.61 |
+| per-class precision (cut / danger / excluded) | 0.80 / 0.68 / 0.71 |
+| per-class F1 (cut / danger / excluded) | 0.81 / 0.69 / 0.66 |
 
 **Crop-expansion ablation outlook** (same split02, 200 epochs):
 
 | crop | balanced acc | ticket |
 | :--- | ---: | :--- |
-| **25pct** (this branch) | **73.16%** | SCRUM-48 |
-| 10pct | 70.94% | SCRUM-52 |
+| 25pct | 73.16% | SCRUM-48 |
+| **10pct** (this branch) | **70.94%** | SCRUM-52 |
 | 0pct  | 71.59% | SCRUM-56 |
 
-→ Surrounding context (25pct) helps the harder minority class; ProtoPFormer is robust even on tight crops (0pct).
+→ ProtoPFormer crop 패턴 = **25 > 0 > 10 (비단조)**. tight crop(0pct)에도 강건하고, 중간값 10pct가 의외의 최저. local prototype 매칭이 spatial location에 덜 민감한 결과.
 
-**Train/Val overfit check (25pct):**
+**Train/Val overfit check (10pct):**
 
-![Train/Val overfit check — 25pct](result/25pct/overfit_curve.png)
+![Train/Val overfit check — 10pct](result/10pct/overfit_curve.png)
 
-Full artifacts in this branch: [`result/25pct/`](result/25pct/) — `metrics.md` (P/R/F1+confusion), `parameters.md` (hyperparams), `train_val_history.md` + `overfit_curve.png` (overfit check).
+Full artifacts in this branch: [`result/10pct/`](result/10pct/) — `metrics.md` (P/R/F1+confusion), `parameters.md` (hyperparams), `train_val_history.md` + `overfit_curve.png` (overfit check).
 
 ## 4. 🔥 Prototype Visualization ★ (core deliverable)
 
@@ -107,15 +108,7 @@ output/.../tf-logs/                          # TensorBoard scalars
 output/.../train-logs/                       # text log (per-epoch metrics, confusion matrix)
 ```
 
-| Area | Change | Why |
-| :--- | :--- | :--- |
-| timm 1.0 compat | pop meta kwargs in `MyVisionTransformer`; optional CaiT import | run on timm 1.0 |
-| Class imbalance | `--balanced_sampler` (WeightedRandomSampler) | minority classes |
-| Metric | balanced accuracy + per-class confusion matrix | imbalanced eval |
-| Checkpointing | best = balanced_acc; per-epoch `checkpoint-latest` (resume) | recall-first / robust long runs |
-| Crop ablation | `--expansion` arg (0 / 10 / 25 %) | context-vs-tightness study |
-| torch 2.6 / mpl 3.4 | `torch.load(weights_only=False)`; `fig.add_subplot(projection='3d')` | visualization on current stack |
-| Hardware | NVIDIA GB10 / aarch64 / CUDA 13 single-GPU path | dev machine |
+---
 
 ## 🔧 Modifications from Original
 
