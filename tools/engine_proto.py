@@ -152,6 +152,7 @@ def evaluate(data_loader, model, device, args):
     # switch to evaluation mode
     model.eval()
 
+    cm = torch.zeros(args.nb_classes, args.nb_classes, dtype=torch.long)  # cm[정답, 예측]
     all_token_attn, pred_labels = [], []
     for images, target in metric_logger.log_every(data_loader, 10, header):
         images = images.to(device, non_blocking=True)
@@ -165,6 +166,9 @@ def evaluate(data_loader, model, device, args):
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
         _, pred = output.topk(k=1, dim=1)
         pred_labels.append(pred)
+        for ti, pi in zip(target.detach().cpu().view(-1).tolist(),
+                          pred.detach().cpu().view(-1).tolist()):
+            cm[ti, pi] += 1
 
         batch_size = images.shape[0]
         metric_logger.update(loss=loss.item())
@@ -182,4 +186,27 @@ def evaluate(data_loader, model, device, args):
     logger.info('* Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f} loss {losses.global_avg:.3f}'
           .format(top1=metric_logger.acc1, top5=metric_logger.acc5, losses=metric_logger.loss))
 
-    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    # ── per-class 진단 (불균형 대응 확인용): confusion matrix + precision/recall/f1 + balanced_acc ──
+    C = args.nb_classes
+    names = getattr(args, 'class_names', None) or [str(i) for i in range(C)]
+    cm_lines = ["Confusion matrix (행=정답, 열=예측):", " " * 12 + "".join(f"{n:>10}" for n in names)]
+    for i in range(C):
+        cm_lines.append(f"{names[i]:>12}" + "".join(f"{int(cm[i, j]):>10}" for j in range(C)))
+    logger.info("\n".join(cm_lines))
+
+    recalls = []
+    rep = [f"{'class':>12}{'prec':>9}{'recall':>9}{'f1':>8}{'support':>9}"]
+    for i in range(C):
+        tp = int(cm[i, i]); sup = int(cm[i].sum()); pred_i = int(cm[:, i].sum())
+        prec = tp / pred_i if pred_i else 0.0
+        rec = tp / sup if sup else 0.0
+        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
+        recalls.append(rec)
+        rep.append(f"{names[i]:>12}{prec:>9.4f}{rec:>9.4f}{f1:>8.4f}{sup:>9}")
+    bal_acc = sum(recalls) / len(recalls) if recalls else 0.0
+    rep.append(f"balanced_acc (mean recall) = {bal_acc*100:.2f}%")
+    logger.info("\n".join(rep))
+
+    stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    stats['balanced_acc'] = bal_acc * 100
+    return stats

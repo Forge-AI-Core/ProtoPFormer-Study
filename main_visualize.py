@@ -101,7 +101,7 @@ def save_fig(X, Y, Z, save_path):
     # plot using subplots
     fea_size = X.shape[0]
     fig = plt.figure()
-    ax1 = fig.gca(projection='3d')
+    ax1 = fig.add_subplot(111, projection='3d')  # matplotlib 3.4+ : gca(projection=) 제거됨
 
     surf = ax1.plot_surface(X, Y, Z, rstride=3, cstride=3, linewidth=2, antialiased=True,
                     cmap=cm.viridis)
@@ -149,7 +149,7 @@ def get_args():
     parser.set_defaults(pin_mem=True)
     parser.add_argument('--input_size', default=224, type=int, help='images input size')
     parser.add_argument('--data_set', default='CIFAR100', 
-        choices=['CIFAR100', 'CIFAR10', 'CUB2011', 'CUB2011U', 'Dogs', 'Caltech256', 'Car'],
+        choices=['CIFAR100', 'CIFAR10', 'CUB2011', 'CUB2011U', 'Dogs', 'Caltech256', 'Car', 'Bogonet'],
         type=str, help='Image Net dataset path')
     parser.add_argument('--data_path', type=str, default='./datasets/cub200_cropped/')
     # ProptoNet
@@ -284,7 +284,7 @@ ppnet = protopformer.construct_PPNet(base_architecture=args.base_architecture,
                                 add_on_layers_type=args.add_on_layers_type)
 
 print('load model from ' + load_model_path)
-load_model = torch.load(load_model_path, map_location='cuda:0')
+load_model = torch.load(load_model_path, map_location='cuda:0', weights_only=False)  # 우리 checkpoint(args 포함) 신뢰
 if 'model' in load_model.keys():
     ppnet.load_state_dict(load_model['model'], strict=False)
 else:

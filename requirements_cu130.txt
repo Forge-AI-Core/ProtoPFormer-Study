@@ -1,0 +1,16 @@
+# ProtoPFormer requirements (CUDA 13.0 / aarch64, NVIDIA GB10)
+# torch/torchvision은 cu130 전용 wheel에서 별도 설치:
+#   pip install "torch==2.10.0+cu130" "torchvision==0.25.0+cu130" --index-url https://download.pytorch.org/whl/cu130
+#
+# timm: scheduler API(timm.scheduler.CosineLRScheduler) 때문에 0.6+ 필요.
+#       공식 repo는 0.4.12 기반이나 torch 2.x 호환을 위해 최신 계열 사용 → smoke test에서 API 충돌 시 버전 조정.
+
+timm
+numpy
+scipy
+pandas
+Pillow
+matplotlib
+opencv-python-headless
+tensorboard
+ipykernel

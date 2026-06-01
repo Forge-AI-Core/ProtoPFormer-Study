@@ -3,11 +3,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from tools.deit_features import deit_tiny_patch_features, deit_small_patch_features
-from tools.cait_features import cait_xxs24_224_features
+
+# CaiT는 timm 1.0에서 제거된 헬퍼(overlay_external_default_cfg)를 import해 깨짐.
+# 본 프로젝트는 DeiT-S만 사용하므로 CaiT는 선택적으로만 로드한다.
+try:
+    from tools.cait_features import cait_xxs24_224_features
+    _CAIT_AVAILABLE = True
+except ImportError:
+    _CAIT_AVAILABLE = False
 
 base_architecture_to_features = {'deit_tiny_patch16_224': deit_tiny_patch_features,
-                                 'deit_small_patch16_224': deit_small_patch_features,
-                                 'cait_xxs24_224': cait_xxs24_224_features,}
+                                 'deit_small_patch16_224': deit_small_patch_features,}
+if _CAIT_AVAILABLE:
+    base_architecture_to_features['cait_xxs24_224'] = cait_xxs24_224_features
 
 class PPNet(nn.Module):
 

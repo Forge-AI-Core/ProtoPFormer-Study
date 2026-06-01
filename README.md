@@ -7,7 +7,7 @@ ProtoPFormer adds **Global + Local prototype branches** on top of DeiT, giving
 **intrinsic interpretability** ("this looks like that") for fine-grained recognition.
 This study repo extends the team's fine-grained pool from **post-hoc attention**
 (TransFG / PIM / RA-CNN) to **intrinsic prototype reasoning**, then transfers to the
-**Vogonet industrial dataset (Phase 2, private)**.
+**Bogonet industrial dataset (Phase 2, private)**.
 
 ## 👁️ Project Goal
 Make each prediction **auditable** — the model points to the image region (prototype)
@@ -15,14 +15,17 @@ behind its decision. Target: safety-critical industrial inspection where *why* m
 
 ## 🚀 Objective
 ```
-ImageNet (DeiT-S/16)  →  Vogonet 3-class domain transfer (our own train/val split)  →  interpretable classifier
+ImageNet (DeiT-S/16)  →  Bogonet 3-class domain transfer (our own train/val split)  →  interpretable classifier
 ```
+
+This branch (**SCRUM-48**) delivers the **25pct crop expansion** full run (200 epochs) + result artifacts.
+Sibling tickets: SCRUM-52 (10pct), SCRUM-56 (0pct) for the 3-way crop ablation.
 
 ---
 
 ## 1. Setup (Python 3.12 · uv)
 
-Reproducible environment via [uv](https://docs.astral.sh/uv/). A teammate only needs:
+Reproducible environment via [uv](https://docs.astral.sh/uv/):
 
 ```bash
 # 1) install uv (once per machine)
@@ -37,43 +40,56 @@ uv run python main.py ...
 
 - **Python**: `3.12` — pinned via `.python-version`
 - **PyTorch**: `torch==2.10.0+cu130`, `torchvision==0.25.0+cu130` from the PyTorch **CUDA 13.0** index
-  (declared in `pyproject.toml [tool.uv.sources]`, so `uv sync` fetches the correct aarch64 wheels automatically)
+  (declared in `pyproject.toml [tool.uv.sources]`, so `uv sync` fetches the correct aarch64 wheels)
 - **Hardware (dev)**: NVIDIA GB10 (DGX Spark, aarch64, CUDA 13.0)
 - Exact versions are frozen in **`uv.lock`** (committed) → identical env for every teammate.
 
-> ℹ️ Scripts/identifiers use the `vogonet` name (aligned with this repo's public alias).
+> ℹ️ Scripts/identifiers use the `bogonet` name throughout.
 
 ---
 
-## 2. 🏋️ Training
+## 2. 🏋️ Training (this branch: crop=25pct)
 
 ```bash
-# bash scripts/train_vogonet.sh <batch> <epochs> <crop_expansion>
-uv run bash scripts/train_vogonet.sh 64 200 25pct
+# bash scripts/train_bogonet.sh <batch> <epochs> <expansion>
+uv run bash scripts/train_bogonet.sh 64 200 25pct
 ```
 - **Class imbalance** → `--balanced_sampler` (WeightedRandomSampler, train loader only)
-- cosine schedule + warmup; **best checkpoint is selected by balanced accuracy**
-- resume a stopped run: pass a 4th arg (a `checkpoint-latest.pth` path)
+- Cosine schedule + warmup; **best checkpoint selected by balanced accuracy**
+- Resume a stopped run: pass a 4th arg (a `checkpoint-latest.pth` path)
+- Full hyperparameters → [`result/25pct/parameters.md`](result/25pct/parameters.md)
 
-## 3. 📊 Evaluation & Inference
+## 3. 📊 Result — 25pct crop, 200 epochs
 
-Reported with **balanced accuracy** (mean per-class recall — the meaningful metric under imbalance),
-plus per-class **precision / recall / F1** and a **confusion matrix**.
-
-**Result (Vogonet 3-class, our own split, DeiT-S/16, 200 epochs):**
+Headline metric = **balanced accuracy** (mean per-class recall — the meaningful metric under imbalance), plus per-class **precision / recall / F1** and a **confusion matrix**.
 
 | metric | value |
 | :--- | :--- |
 | balanced accuracy (best) | **73.16%** |
-| per-class recall | 0.79 / 0.71 / 0.70 |
+| per-class recall (cut / danger / excluded) | 0.79 / 0.71 / 0.70 |
+| per-class precision (cut / danger / excluded) | 0.82 / 0.69 / 0.67 |
+| per-class F1 (cut / danger / excluded) | 0.80 / 0.70 / 0.68 |
 
-Crop-expansion ablation (same split, 200ep): 25% **73.16%** > 10% 70.94% — surrounding context
-helps the harder minority class, while the self-evident class prefers tighter crops.
+**Crop-expansion ablation outlook** (same split02, 200 epochs):
+
+| crop | balanced acc | ticket |
+| :--- | ---: | :--- |
+| **25pct** (this branch) | **73.16%** | SCRUM-48 |
+| 10pct | 70.94% | SCRUM-52 |
+| 0pct  | 71.59% | SCRUM-56 |
+
+→ Surrounding context (25pct) helps the harder minority class; ProtoPFormer is robust even on tight crops (0pct).
+
+**Train/Val overfit check (25pct):**
+
+![Train/Val overfit check — 25pct](result/25pct/overfit_curve.png)
+
+Full artifacts in this branch: [`result/25pct/`](result/25pct/) — `metrics.md` (P/R/F1+confusion), `parameters.md` (hyperparams), `train_val_history.md` + `overfit_curve.png` (overfit check).
 
 ## 4. 🔥 Prototype Visualization ★ (core deliverable)
 
 ```bash
-uv run bash scripts/visualize_vogonet.sh epoch-best.pth
+uv run bash scripts/visualize_bogonet.sh epoch-best.pth
 ```
 Generates per-prototype **activation heatmaps**: *which patch matched which class prototype*,
 making each decision auditable.
@@ -82,7 +98,7 @@ making each decision auditable.
 
 *(Sample images are omitted here — private dataset.)*
 
-## 5. 📈 Output & Metrics
+## 5. 📈 Output & Metrics layout
 
 ```
 output/.../checkpoints/epoch-best.pth        # best by balanced_acc
@@ -91,7 +107,15 @@ output/.../tf-logs/                          # TensorBoard scalars
 output/.../train-logs/                       # text log (per-epoch metrics, confusion matrix)
 ```
 
----
+| Area | Change | Why |
+| :--- | :--- | :--- |
+| timm 1.0 compat | pop meta kwargs in `MyVisionTransformer`; optional CaiT import | run on timm 1.0 |
+| Class imbalance | `--balanced_sampler` (WeightedRandomSampler) | minority classes |
+| Metric | balanced accuracy + per-class confusion matrix | imbalanced eval |
+| Checkpointing | best = balanced_acc; per-epoch `checkpoint-latest` (resume) | recall-first / robust long runs |
+| Crop ablation | `--expansion` arg (0 / 10 / 25 %) | context-vs-tightness study |
+| torch 2.6 / mpl 3.4 | `torch.load(weights_only=False)`; `fig.add_subplot(projection='3d')` | visualization on current stack |
+| Hardware | NVIDIA GB10 / aarch64 / CUDA 13 single-GPU path | dev machine |
 
 ## 🔧 Modifications from Original
 
@@ -105,19 +129,10 @@ output/.../train-logs/                       # text log (per-epoch metrics, conf
 | torch 2.6 / mpl 3.4 | `torch.load(weights_only=False)`; `fig.add_subplot(projection='3d')` | visualization on current stack |
 | Hardware | NVIDIA GB10 / aarch64 / CUDA 13 single-GPU path | dev machine |
 
-## 🔗 Related Repos (Forge-AI-Core)
-
-| Repo | Paradigm | Backbone |
-| :--- | :--- | :--- |
-| [TransFG-Study](https://github.com/Forge-AI-Core/TransFG-Study) | Post-hoc PSM | ViT-B/16 |
-| [FGVC-PIM](https://github.com/Forge-AI-Core/FGVC-PIM) | Plug-in Module | Swin-T |
-| [FGVC-RA-CNN](https://github.com/Forge-AI-Core/FGVC-RA-CNN) | Recurrent Attention | VGG/ResNet |
-| **ProtoPFormer-Study** | **Intrinsic Prototype** | **DeiT-S/16** |
-
 ## ♻️ Reproducibility Policy
 
 Any teammate should read this README, run the committed files as-is (`uv sync` → `uv run ...`),
-and obtain the same result. Fixed seed; environment frozen in `uv.lock`; results recorded as numbers above;
+and obtain the same result. Fixed seed (1028); environment frozen in `uv.lock`; results recorded above;
 no aspirational commands.
 
 ## Citation

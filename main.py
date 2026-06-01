@@ -174,7 +174,7 @@ def get_args_parser():
 
     # Dataset parameters
     parser.add_argument('--data_set', default='CIFAR100', 
-    choices=['CUB2011U', 'Car', 'Dogs',],
+    choices=['CUB2011U', 'Car', 'Dogs', 'Bogonet',],
     # choices=['CIFAR', 'IMNET', 'INAT', 'INAT19'],
                         type=str, help='Image Net dataset path')
     parser.add_argument('--inat-category', default='name',
@@ -192,6 +192,8 @@ def get_args_parser():
     parser.add_argument('--eval', action='store_true', help='Perform evaluation only')
     parser.add_argument('--dist-eval', action='store_true', default=False, help='Enabling distributed evaluation')
     parser.add_argument('--num_workers', default=10, type=int)
+    parser.add_argument('--balanced_sampler', action='store_true', default=False,
+                        help='WeightedRandomSampler 로 클래스 불균형 보정 (train loader 만, 평가는 영향 없음)')
     parser.add_argument('--pin-mem', action='store_true',
                         help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
     parser.add_argument('--no-pin-mem', action='store_false', dest='pin_mem',
@@ -278,6 +280,8 @@ def main(args):
     # dataset_val, _ = build_dataset(is_train=False, args=args)
     logger.info("Dataset num_classes: {}".format(args.nb_classes))
     logger.info("train {} test: {}".format(len(dataset_train), len(dataset_val)))
+    if hasattr(dataset_val, 'classes'):
+        args.class_names = dataset_val.classes   # per-class 평가 라벨명
 
     # if True:  # args.distributed:
     if args.distributed:
@@ -296,7 +300,18 @@ def main(args):
         else:
             sampler_val = torch.utils.data.SequentialSampler(dataset_val)
     else:
-        sampler_train = torch.utils.data.RandomSampler(dataset_train)
+        if args.balanced_sampler:
+            # 클래스 불균형 보정: 소수 클래스 샘플을 더 자주 뽑음 (train loader 만).
+            targets = [int(lbl) for _, lbl in dataset_train.samples]
+            class_count = np.bincount(targets, minlength=args.nb_classes)
+            per_class_w = 1.0 / np.maximum(class_count, 1)
+            sample_weights = per_class_w[targets]
+            sampler_train = torch.utils.data.WeightedRandomSampler(
+                weights=torch.as_tensor(sample_weights, dtype=torch.double),
+                num_samples=len(targets), replacement=True)
+            logger.info("WeightedRandomSampler ON  class_count={}  → 균등 샘플링".format(class_count.tolist()))
+        else:
+            sampler_train = torch.utils.data.RandomSampler(dataset_train)
         sampler_val = torch.utils.data.SequentialSampler(dataset_val)
 
     data_loader_train = torch.utils.data.DataLoader(
@@ -414,6 +429,7 @@ def main(args):
     logger.info(f"Start training for {args.epochs} epochs")
     start_time = time.time()
     max_accuracy = 0.0
+    max_balanced = 0.0          # best checkpoint 기준 (불균형: balanced_acc 사용)
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             logger.info("distributed, data_loader_train set epoch")
@@ -452,12 +468,16 @@ def main(args):
         tb_writer.add_scalar("epoch/val_acc1", test_stats['acc1'], epoch)
         tb_writer.add_scalar("epoch/val_loss", test_stats['loss'], epoch)
         tb_writer.add_scalar("epoch/val_acc5", test_stats['acc5'], epoch)
+        if 'balanced_acc' in test_stats:
+            tb_writer.add_scalar("epoch/val_balanced_acc", test_stats['balanced_acc'], epoch)
         if args.use_global:
             tb_writer.add_scalar("epoch/global_acc1", test_stats['global_acc1'], epoch)
             tb_writer.add_scalar("epoch/local_acc1", test_stats['local_acc1'], epoch)
 
         logger.info(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
-        if max_accuracy < test_stats["acc1"]:   # save the best
+        # best checkpoint = balanced_acc 기준 (불균형 데이터에서 acc1 보다 적절). 없으면 acc1 로 fallback.
+        cur_balanced = test_stats.get("balanced_acc", test_stats["acc1"])
+        if max_balanced < cur_balanced:   # save the best
             checkpoint_paths = [output_dir / 'checkpoints/epoch-best.pth']
             for checkpoint_path in checkpoint_paths:
                 utils.save_on_master({
@@ -468,9 +488,25 @@ def main(args):
                     'model_ema': get_state_dict(model_ema),
                     'scaler': loss_scaler.state_dict(),
                     'args': args,
+                    'balanced_acc': cur_balanced,
+                    'acc1': test_stats['acc1'],
                 }, checkpoint_path)
+            logger.info(f"[best] balanced_acc {cur_balanced:.2f}% @ epoch {epoch} → saved epoch-best.pth")
+        max_balanced = max(max_balanced, cur_balanced)
         max_accuracy = max(max_accuracy, test_stats["acc1"])
-        logger.info(f'Max accuracy: {max_accuracy:.2f}%')
+        logger.info(f'Max balanced_acc: {max_balanced:.2f}%  (Max acc1: {max_accuracy:.2f}%)')
+
+        # 매 epoch: resume 용 latest checkpoint(덮어쓰기) — 중간에 끊겨도 --resume 으로 이어서 가능
+        if args.output_dir:
+            utils.save_on_master({
+                'model': model_without_ddp.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'lr_scheduler': lr_scheduler.state_dict(),
+                'epoch': epoch,
+                'model_ema': get_state_dict(model_ema),
+                'scaler': loss_scaler.state_dict(),
+                'args': args,
+            }, output_dir / 'checkpoints/checkpoint-latest.pth')
 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                      **{f'test_{k}': v for k, v in test_stats.items()},
