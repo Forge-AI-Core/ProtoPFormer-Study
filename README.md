@@ -18,8 +18,8 @@ behind its decision. Target: safety-critical industrial inspection where *why* m
 ImageNet (DeiT-S/16)  →  Bogonet 3-class domain transfer (our own train/val split)  →  interpretable classifier
 ```
 
-This branch (**SCRUM-52**) delivers the **10pct crop expansion** full run (200 epochs) + result artifacts.
-Sibling tickets: SCRUM-48 (25pct), SCRUM-56 (0pct) for the 3-way crop ablation.
+This branch (**SCRUM-56**) delivers the **0pct crop expansion** (no surrounding context) full run (200 epochs) + result artifacts.
+Sibling tickets: SCRUM-48 (25pct), SCRUM-52 (10pct) for the 3-way crop ablation.
 
 ---
 
@@ -48,44 +48,43 @@ uv run python main.py ...
 
 ---
 
-## 2. 🏋️ Training (this branch: crop=10pct)
+## 2. 🏋️ Training (this branch: crop=0pct)
 
 ```bash
-# bash scripts/train_bogonet.sh <batch> <epochs> <expansion>  [resume_ckpt]
-uv run bash scripts/train_bogonet.sh 64 150 10pct                                    # 1차 150ep
-uv run bash scripts/train_bogonet.sh 64 200 10pct <checkpoint-latest>                # 200ep까지 resume
+# bash scripts/train_bogonet.sh <batch> <epochs> <expansion>
+uv run bash scripts/train_bogonet.sh 64 200 0pct
 ```
 - **Class imbalance** → `--balanced_sampler` (WeightedRandomSampler, train loader only)
 - Cosine schedule + warmup; **best checkpoint selected by balanced accuracy**
-- 25pct/0pct는 200ep 단번에 학습, 10pct는 공정 비교 위해 150 → resume +50ep = 200ep
-- Full hyperparameters → [`result/10pct/parameters.md`](result/10pct/parameters.md)
+- Resume a stopped run: pass a 4th arg (a `checkpoint-latest.pth` path)
+- Full hyperparameters → [`result/0pct/parameters.md`](result/0pct/parameters.md)
 
-## 3. 📊 Result — 10pct crop, 200 epochs
+## 3. 📊 Result — 0pct crop, 200 epochs
 
 Headline metric = **balanced accuracy** (mean per-class recall — the meaningful metric under imbalance), plus per-class **precision / recall / F1** and a **confusion matrix**.
 
 | metric | value |
 | :--- | :--- |
-| balanced accuracy (best) | **70.94%** |
-| per-class recall (cut / danger / excluded) | 0.82 / 0.70 / 0.61 |
-| per-class precision (cut / danger / excluded) | 0.80 / 0.68 / 0.71 |
-| per-class F1 (cut / danger / excluded) | 0.81 / 0.69 / 0.66 |
+| balanced accuracy (best) | **71.59%** |
+| per-class recall (cut / danger / excluded) | 0.80 / 0.71 / 0.64 |
+| per-class precision (cut / danger / excluded) | 0.80 / 0.67 / 0.70 |
+| per-class F1 (cut / danger / excluded) | 0.80 / 0.69 / 0.67 |
 
 **Crop-expansion ablation outlook** (same split02, 200 epochs):
 
 | crop | balanced acc | ticket |
 | :--- | ---: | :--- |
 | 25pct | 73.16% | SCRUM-48 |
-| **10pct** (this branch) | **70.94%** | SCRUM-52 |
-| 0pct  | 71.59% | SCRUM-56 |
+| 10pct | 70.94% | SCRUM-52 |
+| **0pct** (this branch) | **71.59%** | SCRUM-56 |
 
-→ ProtoPFormer crop 패턴 = **25 > 0 > 10 (비단조)**. tight crop(0pct)에도 강건하고, 중간값 10pct가 의외의 최저. local prototype 매칭이 spatial location에 덜 민감한 결과.
+→ ProtoPFormer crop 패턴 = **25 > 0 > 10 (비단조)**. tight crop(0pct, 컨텍스트 없음)에도 71.59%로 **강건** — local prototype 매칭이 특정 patch 중심이라 컨텍스트에 덜 의존. TransFG(전역 attention)는 0pct에서 67%로 급락해 대비됨.
 
-**Train/Val overfit check (10pct):**
+**Train/Val overfit check (0pct):**
 
-![Train/Val overfit check — 10pct](result/10pct/overfit_curve.png)
+![Train/Val overfit check — 0pct](result/0pct/overfit_curve.png)
 
-Full artifacts in this branch: [`result/10pct/`](result/10pct/) — `metrics.md` (P/R/F1+confusion), `parameters.md` (hyperparams), `train_val_history.md` + `overfit_curve.png` (overfit check).
+Full artifacts in this branch: [`result/0pct/`](result/0pct/) — `metrics.md` (P/R/F1+confusion), `parameters.md` (hyperparams), `train_val_history.md` + `overfit_curve.png` (overfit check).
 
 ## 4. 🔥 Prototype Visualization ★ (core deliverable)
 
