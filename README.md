@@ -18,8 +18,8 @@ behind its decision. Target: safety-critical industrial inspection where *why* m
 ImageNet (DeiT-S/16)  →  Bogonet 3-class domain transfer (our own train/val split)  →  interpretable classifier
 ```
 
-This branch (**SCRUM-56**) delivers the **0pct crop expansion** (no surrounding context) full run (200 epochs) + result artifacts.
-Sibling tickets: SCRUM-48 (25pct), SCRUM-52 (10pct) for the 3-way crop ablation.
+This branch (**SCRUM-82**) delivers **test set evaluation** on a newly received test set (`Bogonet_data/testset/`) for crops 25pct + 0pct, using best checkpoints from SCRUM-48/56 with **val-derived thresholds**. PR curves, per-class metrics, and confusion matrices for each crop are added under `result/<crop>/test/`.
+Sibling tickets: SCRUM-48 (25pct train, merged), SCRUM-52 (10pct train, merged), SCRUM-56 (0pct train, merged), SCRUM-81 (TransFG parallel test eval).
 
 ---
 
@@ -107,6 +107,41 @@ output/.../tf-logs/                          # TensorBoard scalars
 output/.../train-logs/                       # text log (per-epoch metrics, confusion matrix)
 ```
 
+## 6. 🧪 Test Set Evaluation (SCRUM-82)
+
+Newly received test set (`Bogonet_data/testset/`, **326 samples per crop**) evaluated with best checkpoints from SCRUM-48 (25pct) and SCRUM-56 (0pct). **Validation-derived threshold** (rule: `P(danger) ≥ τ → danger; else argmax({cut, excluded})`, τ selected to maximize val balanced_acc) applied to test predictions; argmax baseline reported alongside.
+
+> **Test set distribution differs sharply from train/val** — `cut 33 / danger 266 / excluded 27` (danger **82 %**), simulating realistic operational deployment where most inspected items warrant review. Absolute accuracy looks low because danger errors dominate the count; PR-AUC for danger is the meaningful signal.
+
+### Test crop ablation (argmax)
+
+| crop | val τ\* | test acc | test bacc | danger P | danger R | danger AP | mAP |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 25pct | 0.45 | 38.96 % | 34.30 % | 78.26 % | 40.60 % | **0.785** | 0.329 |
+| 0pct  | 0.45 | **39.26 %** | **36.19 %** | 78.10 % | 40.23 % | **0.786** | **0.342** |
+
+Per-class details + confusion matrices + PR curves: [`result/25pct/test/`](result/25pct/test/) · [`result/0pct/test/`](result/0pct/test/)
+
+### Key observations
+
+- **Danger PR-AUC ≈ 0.785** for both crops — model **discriminates danger well** in confidence ranking, but operating-point recall is conservative.
+- **Danger precision ~78 %** at argmax — when ProtoPFormer says danger, it's usually right.
+- **Danger recall only ~40 %** at argmax — **misses ~60 %** of dangers, far below TransFG (~58 %). prototype voting under operational distribution is overly cautious — many dangers classified as `cut`.
+- **Val → test threshold portability OK**: τ\* derived on val (= 0.45 for both crops) gives **small positive lift** on test (+0.5–1.2 %p acc), unlike TransFG where threshold transfer was slightly negative.
+- **Crop effect inverted vs val**: val showed 25pct > 0pct, but **test shows 0pct slightly better** for ProtoPFormer (acc 39.26 vs 38.96, mAP 0.342 vs 0.329). Local prototype matching is less crop-sensitive than expected.
+- **Cut + excluded AP very low** (0.09–0.13): minorities in test (33 + 27 of 326), one-vs-rest PR is penalized; per-class signal limited.
+
+### How to reproduce
+
+```bash
+proto_venv/bin/python test_bogonet.py --expansion 25pct
+proto_venv/bin/python test_bogonet.py --expansion 0pct
+```
+
+Loads best `epoch-best.pth` checkpoint, runs val for τ sweep (saves `threshold_sweep.md`), then test inference. Outputs `metrics.md`, `pr_curve.png`, `confusion_matrix.png`, `threshold_sweep.md` to `result/<crop>/test/`.
+
+> Sibling SCRUM-81 (TransFG-Bogo) ran identical experiment for cross-model comparison: TransFG showed higher test danger recall (~58 %) but similar danger AP (~0.82). See sibling repo PR for details.
+
 ---
 
 ## 🔧 Modifications from Original
@@ -118,6 +153,7 @@ output/.../train-logs/                       # text log (per-epoch metrics, conf
 | Metric | balanced accuracy + per-class confusion matrix | imbalanced eval |
 | Checkpointing | best = balanced_acc; per-epoch `checkpoint-latest` (resume) | recall-first / robust long runs |
 | Crop ablation | `--expansion` arg (0 / 10 / 25 %) | context-vs-tightness study |
+| Test eval (SCRUM-82) | `test_bogonet.py` — val τ sweep → val-τ\* on test + argmax + PR curves | apply val operating point on real-distribution test set |
 | torch 2.6 / mpl 3.4 | `torch.load(weights_only=False)`; `fig.add_subplot(projection='3d')` | visualization on current stack |
 | Hardware | NVIDIA GB10 / aarch64 / CUDA 13 single-GPU path | dev machine |
 
